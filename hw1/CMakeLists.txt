@@ -19,3 +19,5 @@ target_link_libraries(benchmark-blocked blas rt)
 add_executable(benchmark-blas benchmark.c dgemm-blas.c)
 target_link_libraries(benchmark-blas blas rt)
 
+add_executable(sse-example sse-example.c)
+
