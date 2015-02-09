@@ -22,12 +22,6 @@ const char* dgemm_desc = "Simple blocked dgemm.";
 #define get_align16(ptr) ((int) (((uintptr_t) (ptr)) & 15))
 #define check_aligned16(ptr) assert(get_align16(ptr) == 0);
 
-// 32 byte aligned malloc
-#define malloc32(N) \
-  (((uintptr_t) (malloc(N + 31)) + 31) & ~(uintptr_t) 0xFF)
-#define get_align32(ptr) ((int) (((uintptr_t) (ptr)) & 31))
-#define check_aligned32(ptr) assert(get_align32(ptr) == 0);
-
 __attribute__((always_inline))
 inline double dotSSE(double* a, double* b, int n) {
   double dot[2];
@@ -103,22 +97,22 @@ void square_dgemm(int lda, double* A, double* B, double* C) {
   }
 
   // Move B over -- we can copy this over verbatim
-  for (int i = 0; i < lda; ++i) {
-    for (int j = 0; j < lda; ++j) {
+  for (int j = 0; j < lda; ++j) {
+    for (int i = 0; i < lda; ++i) {
       al_B[i+j*new_lda] = B[i+j*lda];
     }
   }
 
   // If we have odd matrices, then add padding
-  if (lda % 2 == 1) {
-    for (int i = 0; i < new_lda; ++i) {
-      al_A_t[(new_lda-1)+i*new_lda] = 0;
-      al_A_t[i+(new_lda-1)*new_lda] = 0;
+  // if (lda % 2 == 1) {
+  //   for (int i = 0; i < new_lda; ++i) {
+  //     al_A_t[(new_lda-1)+i*new_lda] = 0;
+  //     al_A_t[i+(new_lda-1)*new_lda] = 0;
 
-      al_B[(new_lda-1)+i*new_lda] = 0;
-      al_B[i+(new_lda-1)*new_lda] = 0;
-    }
-  }
+  //     al_B[(new_lda-1)+i*new_lda] = 0;
+  //     al_B[i+(new_lda-1)*new_lda] = 0;
+  //   }
+  // }
 
   /* For each block-row of A */
   for (int i = 0; i < new_lda; i += BLOCK_SIZE) {
