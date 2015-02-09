@@ -7,7 +7,7 @@ include_directories(${BLAS_INCLUDE_DIR})
 
 ## C++ files
 # Build O3 optimized binaries - C++
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic -Wall -std=gnu99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic -Wall -std=gnu99 -mavx2")
 
 # Naive
 add_executable(benchmark-naive benchmark.c dgemm-naive.c)

@@ -4,13 +4,19 @@
 #include <string.h>
 #include <assert.h>
 
+#include <sys/time.h>
+
 #include <emmintrin.h>
+#include <immintrin.h>
 #include <pmmintrin.h>
 
 #define malloc16(N) \
   (((uintptr_t) (malloc(N + 15)) + 15) & ~(uintptr_t) 0x0F)
 
-float reduce(const float* a, int n) {
+#define malloc32(N) \
+  (((uintptr_t) (malloc(N + 31)) + 31) & ~(uintptr_t) 0x0FF)
+
+float reduceSSE(const float* a, int n) {
   float sum[4];
   __m128 vsum = _mm_set1_ps(0);
 
@@ -33,17 +39,108 @@ float reduce(const float* a, int n) {
   return sum[0] + sum[1] + sum[2] + sum[3];
 }
 
+float reduceAVX(const float* a, int n) {
+  float sum[8];
+  __m256 vsum = _mm256_set_ps(0, 0, 0, 0, 0, 0, 0, 0);
+
+  // Ensure that n is a multiple of 8
+  assert((n & 7) == 0);
+
+  // Ensure that a is 16-byte aligned
+  assert(((uintptr_t) a & 31) == 0);
+
+  // Execute the adds
+  for (int i = 0; i < n; i += 8) {
+    __m256 value = _mm256_load_ps(&a[i]);
+    vsum = _mm256_add_ps(vsum, value);
+  }
+
+  // Store results back in sum
+  _mm256_store_ps(sum, vsum);
+
+  // Return
+  float res = sum[0];
+  res += sum[1];
+  res += sum[2];
+  res += sum[3];
+  res += sum[4];
+  res += sum[5];
+  res += sum[6];
+  res += sum[7];
+  return res;
+}
+
 int main() {
-  int N = 20;
-  // void* mem = malloc(sizeof(float) * N + 15);
-  // float* ptr = (float*) (((uintptr_t) mem + 15) & ~(uintptr_t) 0x0F);
+  int N = 8 * 100000;
 
-  float* ptr = (float*) malloc16(sizeof(float) * N);
+  float* ptr16 = (float*) malloc32(sizeof(float) * N);
+  for (int j = 0; j < N; ++j) ptr16[j] = (j * 13) % 10;
 
-  for (int i = 0; i < N; ++i) ptr[i] = i;
+  float* ptr32 = (float*) malloc32(sizeof(float) * N);
+  for (int i = 0; i < N; ++i) ptr32[i] = (i * 13) % 10;
 
-  printf("sum: %f\n", reduce(ptr, N));
-  printf("sum: %d\n", N * (N - 1) / 2);
+  // [TIMING BLOCK] sse
+  struct timeval timer_sse;
+  gettimeofday(&timer_sse, NULL);
+  double tic_sse =
+      (double) timer_sse.tv_sec +
+      (double) (1e-6 * timer_sse.tv_usec);
+  printf("[Timing] sse ...\n");
+  ///
+  printf("SSE sum: %f\n", reduceSSE(ptr16, N));
+  ///
+  gettimeofday(&timer_sse, NULL);
+  double toc_sse =
+      (double) timer_sse.tv_sec +
+      (double) (1e-6 * timer_sse.tv_usec);
+  double sse =
+      toc_sse -
+      tic_sse;
+  printf("[Timing] sse: ");
+  printf("%f\n", sse);
+
+  // [TIMING BLOCK] avx
+  struct timeval timer_avx;
+  gettimeofday(&timer_avx, NULL);
+  double tic_avx =
+      (double) timer_avx.tv_sec +
+      (double) (1e-6 * timer_avx.tv_usec);
+  printf("[Timing] avx ...\n");
+  ///
+  printf("AVX sum: %f\n", reduceAVX(ptr32, N));
+  ///
+  gettimeofday(&timer_avx, NULL);
+  double toc_avx =
+      (double) timer_avx.tv_sec +
+      (double) (1e-6 * timer_avx.tv_usec);
+  double avx =
+      toc_avx -
+      tic_avx;
+  printf("[Timing] avx: ");
+  printf("%f\n", avx);
+
+  // [TIMING BLOCK] naive
+  struct timeval timer_naive;
+  gettimeofday(&timer_naive, NULL);
+  double tic_naive =
+      (double) timer_naive.tv_sec +
+      (double) (1e-6 * timer_naive.tv_usec);
+  printf("[Timing] naive ...\n");
+  ///
+  float sum = 0;
+  for (int i = 0; i < N; ++i) sum += ptr32[i];
+  ///
+  gettimeofday(&timer_naive, NULL);
+  double toc_naive =
+      (double) timer_naive.tv_sec +
+      (double) (1e-6 * timer_naive.tv_usec);
+  double naive =
+      toc_naive -
+      tic_naive;
+  printf("[Timing] naive: ");
+  printf("%f\n", naive);
+
+  printf("True sum: %f\n", sum);
 
   return 0;
 }
