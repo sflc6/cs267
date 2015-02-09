@@ -29,27 +29,6 @@ const char* dgemm_desc = "Simple blocked dgemm.";
 #define check_aligned32(ptr) assert(get_align32(ptr) == 0);
 
 __attribute__((always_inline))
-inline double dotAVX(double* a, double* b, int n) {
-  assert(get_align32(a) == 0);
-  assert(get_align32(b) == 0);
-
-  double dot[4];
-  __m256d vdot = _mm256_set_pd(0, 0, 0, 0);
-
-  for (int i = 0; i < n; i += 4) {
-    __m256d v_a = _mm256_load_pd(&a[i]);
-    __m256d v_b = _mm256_load_pd(&b[i]);
-
-    v_a = _mm256_mul_pd(v_a, v_b);
-    vdot = _mm256_add_pd(vdot, v_a);
-  }
-
-  _mm256_store_pd(dot, vdot);
-
-  return dot[0] + dot[1] + dot[2] + dot[3];
-}
-
-__attribute__((always_inline))
 inline double dotSSE(double* a, double* b, int n) {
   double dot[2];
   __m128d vdot = _mm_set1_pd(0);
