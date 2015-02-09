@@ -10,11 +10,27 @@
 #include <immintrin.h>
 #include <pmmintrin.h>
 
-#define malloc16(N) \
-  (((uintptr_t) (malloc(N + 15)) + 15) & ~(uintptr_t) 0x0F)
-
 #define malloc32(N) \
   (((uintptr_t) (malloc(N + 31)) + 31) & ~(uintptr_t) 0x0FF)
+
+__attribute__((always_inline))
+inline double dotSSE(double* a, double* b, int n) {
+  double dot[2];
+  __m128d vdot = _mm_set1_pd(0);
+
+  for (int i = 0; i < (n / 2) * 2; i += 2) {
+    __m128d v_a = _mm_load_pd(&a[i]);
+    __m128d v_b = _mm_load_pd(&b[i]);
+
+    v_a = _mm_mul_pd(v_a, v_b);
+    vdot = _mm_add_pd(vdot, v_a);
+  }
+
+  _mm_store_pd(dot, vdot);
+
+  return (n % 2 == 0 ? dot[0] + dot[1] :
+          dot[0] + dot[1] + a[n - 1] * b[n - 1]);
+}
 
 float reduceSSE(const float* a, int n) {
   float sum[4];
@@ -70,7 +86,7 @@ float reduceAVX(const float* a, int n) {
   return res;
 }
 
-int main() {
+void benchmark_reduce() {
   int N = 8 * 100000;
 
   float* ptr16 = (float*) malloc32(sizeof(float) * N);
@@ -141,6 +157,20 @@ int main() {
   printf("%f\n", naive);
 
   printf("True sum: %f\n", sum);
+}
+
+int main() {
+  int N = 31;
+  double* ptr = (double*) malloc32(sizeof(double) * N);
+  for (int i = 0; i < N; ++i) ptr[i] = i + 1;
+
+  printf("%f\n", dotSSE(ptr, ptr, N));
+
+  double ret = 0;
+  for (int i = 0; i < N; ++i) {
+    ret += ptr[i] * ptr[i];
+  }
+  printf("%f\n", ret);
 
   return 0;
 }
