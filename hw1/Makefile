@@ -2,7 +2,7 @@
 # This makefile is intended for the GNU C compiler. On Hopper, the Portland compilers are default, so you must instruct the Cray compiler wrappers to switch to GNU: type "module swap PrgEnv-pgi PrgEnv-gnu"
 
 CC = cc
-OPT = -O2 -march=native -funroll-loops -fsched-pressure -fsched-spec-load-dangerous 
+OPT = -O2 -march=native -funroll-loops -fsched-pressure -fsched-spec-load-dangerous
 CFLAGS = -Wall -std=gnu99 $(OPT)
 LDFLAGS = -Wall
 
