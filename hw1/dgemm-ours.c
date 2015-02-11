@@ -191,8 +191,8 @@ void small_square_dgemm(int lda, double* A, double* B,
   }
 
   // If we're currently using padding, then unpad
-  for (int j = 0; j < lda; j++) {
-    for (int i = 0; i < lda; i++) {
+  for (j = 0; j < lda; j++) {
+    for (i = 0; i < lda; i++) {
       C[i + j * lda] = padded_C[i + j * new_lda];
     }
   }
@@ -260,8 +260,8 @@ void big_square_dgemm(int lda, double* A, double* B,
 
   // If we're currently using padding, then unpad
   if (uses_padding) {
-    for (int j = 0; j < lda; j++) {
-      for (int i = 0; i < lda; i++) {
+    for (j = 0; j < lda; j++) {
+      for (i = 0; i < lda; i++) {
         C[i + j * lda] = padded_C[i + j * new_lda];
       }
     }
@@ -271,7 +271,8 @@ void big_square_dgemm(int lda, double* A, double* B,
   free(rearranged_A);
 }
 
-void square_dgemm(int lda, double *A, double *B, double* __restrict__ C) {
+void square_dgemm(int lda, double *A, double *B,
+                  double* __restrict__ C) {
   if (lda < 1024) {
     small_square_dgemm(lda, A, B, C);
   } else {
