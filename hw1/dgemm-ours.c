@@ -6,7 +6,7 @@
 const char* dgemm_desc = "Loop-tiled dgemm; A is re-ordered where A's blocks are placed in column-major order, and each block is in column-major order. Blocks of B are transposed and cached. Block multiplies are executed via SSE.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 64
+#define BLOCK_SIZE 68
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -228,8 +228,7 @@ void big_square_dgemm(int lda, double* A, double* B, double* __restrict__ C) {
 
   // BLOCK_SIZE should be fairly small, so store cur_block_B on the
   // stack rather than on the heap.
-  double cur_block_B[BLOCK_SIZE*
-                     BLOCK_SIZE] __attribute__((aligned(16)));
+  double cur_block_B[BLOCK_SIZE * BLOCK_SIZE];
 
   double* p_B;
   for (j = 0; j < new_lda; j += BLOCK_SIZE) {

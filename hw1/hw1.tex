@@ -96,7 +96,8 @@ Berkeley, CA 94709 \\
 \maketitle
 
 \section{Optimizations Used and Attempted}
-This section describes the approach we took in optimizing the \dgemm procedure.
+This section describes the approach we took in optimizing the \dgemm procedure,
+which runs at $60.5\%$ of peak speed on an AMD MagnyCours.
 Concretely, we describe how we compute $C \leftarrow C + AB$. At a high level,
 we (a) create auxiliary data structures that re-arrange and/or pad $A$, $B$,
 and $C$, (b) employ blocking to multiply small blocks of $A$, $B$, and $C$,
@@ -108,12 +109,10 @@ Originally, we coded up a standard ``inner-product-based'' matrix multiplication
 algorithm. Unfortunately, we could not figure out a good way to perform
 horizontal adds using SSE2, i.e. \texttt{\_mm\_hadd\_pd}. As such, we opted to go
 for an ``outer-product-based'' method, noting that:
-
 \begin{align}
   \label{eq:matmul}
   C = AB = \sum_{i}\sum_{j}A_i B^{(j)},
 \end{align}
-
 where $A_i$ denotes the $i$th row of $A$ and $B^{(j)}$ denotes the $j$th row of
 $B$. In particular, the inner summand has the same size as $C$. To evaluate the
 inner summand, we consider $4$ entries of $A_i$ and $4$ entries of $B^{(j)}$ at
@@ -145,7 +144,8 @@ $16$ XMM registers.
 \textbf{Testing AMD MagnyCours Pipelining} We also tried many possible
 re-orderings of the various loads, adds, and multiplies involved in making the
 $4\times 4$ updates. This made no measurable difference in runtimes, presumably
-because the compiler automates this.
+because the compiler automates this (we found out about this when spending time
+in selecting compile flags).
 
 \textbf{Testing Inner Product Methods} We originally implemented an
 inner-product-based method, but were stuck on how to efficiently compute
@@ -164,14 +164,14 @@ Because we iterate over blocks of $A$, we store an
 auxiliary matrix that stores entries of A columnwise block-by-block where each
 block also has entries in column-major order. We make 16-byte-aligned memory
 allocations on the stack, (a) to prepare for aligned SSE instructions and (b)
-because matrix sizes tested are under 10 MB in size. We found that $64\times 64$
+because matrix sizes tested are under 10 MB in size. We found that $68\times 68$
 block sizes yielded good performance in practice. This procedure involves $4$
 nested loops -- we tried all $24$ possible configurations and retained the best
 ordering (see code for specifics).
 
 Because we iterate over the rows of $B$, in processing
 each block of $A$, we (a) copy the transpose of the block considered in $B$ into
-an auxiliary matrix stored on the stack. Given $64\times 64$ blocks of $A$ and
+an auxiliary matrix stored on the stack. Given $68\times 68$ blocks of $A$ and
 $B$, we invoke the method described in Section~\ref{sec:ioproducts}.
 
 We store $C$ in standard, column-major format. Recall that $A$, $B$, and $C$
@@ -205,6 +205,19 @@ We employ the following compiler options:
     performance, so why not include it. This allows for speculative motions of
     more load instructions.
 \end{itemize}
+
+We also experimented with \texttt{-funroll-all-loops} (slowed down performance in
+comparison with \texttt{-funroll-loops}), \texttt{-ffast-math} (surprisingly
+did not improve performance), \texttt{-fdata-sections} (slowed down performance),
+and \texttt{-fbranch-target-load-optimize2} (made no difference).
+
+We also experimented with \texttt{-fprofile-arcs}; after enabling this
+flag and adding \texttt{-lgcov} to LDLIBS, we run our executable, which saves a
+``.gcda'' file to disk. This file contains the various branch prediction
+probabilities and other useful goodies, which we can then be used by future
+executions of the code. Indeed, recompiling with the
+\texttt{-fbranch-probabilities} flag, we unfortunately found that the resulting
+code somehow ran slower (perhaps we didn't run something correctly).
 
 \small
 \bibliographystyle{plain}
