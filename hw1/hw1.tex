@@ -1,0 +1,214 @@
+\documentclass{article} % For LaTeX2e
+\usepackage{nips14submit_e,times}
+\usepackage{hyperref}
+\usepackage{url}
+
+% For figures
+\usepackage{graphicx} % more modern
+\usepackage{pstool}
+\usepackage{caption}
+\usepackage{subcaption}
+
+% For citations
+\usepackage{natbib}
+
+% For algorithms
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% Nice colors
+\usepackage{color,colortbl}
+
+% Table related packages
+\usepackage{multirow}
+\usepackage{rotating}
+% \newcommand\VRule[1][\arrayrulewidth]{\vrule width #1}
+
+% Multiple columns
+\usepackage{multicol}
+
+% Enumerate items
+\usepackage{enumitem}
+
+% Math packages
+\usepackage{amsmath,amsfonts,amssymb,amsthm,dsfont}
+\usepackage{bm}
+\usepackage{array,booktabs,xcolor}
+\usepackage{color}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+% Colors
+\definecolor{LightGreen}{rgb}{0.87,0.90,0.82}
+\definecolor{DarkGreen}{rgb}{0.60,0.73,0.35}
+\renewcommand*\arraystretch{1.1}
+
+% Proof sketch environment
+\newenvironment{proofsketch}{\trivlist\item[]\emph{Proof Sketch}:}%
+{\unskip\nobreak\hskip 1em plus 1fil\nobreak$\Box$
+\parfillskip=0pt%
+\endtrivlist}
+
+\title{CS 267 Homework 1: Matrix Multiplication}
+
+
+\author{
+Karthik S. Narayan \\
+Electrical Engineering and Computer Science\\
+University of California, Berkeley\\
+Berkeley, CA 94709 \\
+\texttt{karthik.narayan@berkeley.edu} \\
+\And
+Charles Scudiere \\
+Mechanical Engineering\\
+University of California, Berkeley\\
+Berkeley, CA 94709 \\
+\texttt{cascudiere@berkeley.edu} \\
+}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to break
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+\nipsfinalcopy % Uncomment for camera-ready version
+
+\begin{document}
+
+% Commonly used expressions
+\newcommand{\dgemm}{\texttt{dgemm}}
+
+% TODO commands
+\newcommand\todo{\textcolor{red}{TODO}}
+\newcommand\tocite{\textcolor{red}{CITE}}
+
+\maketitle
+
+\section{Optimizations Used and Attempted}
+This section describes the approach we took in optimizing the \dgemm procedure.
+Concretely, we describe how we compute $C \leftarrow C + AB$. At a high level,
+we (a) create auxiliary data structures that re-arrange and/or pad $A$, $B$,
+and $C$, (b) employ blocking to multiply small blocks of $A$, $B$, and $C$,
+where we (c) use SSE instructions with loop unrolling.
+
+\subsection{Inner vs. Outer products}
+\label{sec:ioproducts}
+Originally, we coded up a standard ``inner-product-based'' matrix multiplication
+algorithm. Unfortunately, we could not figure out a good way to perform
+horizontal adds using SSE2, i.e. \texttt{\_mm\_hadd\_pd}. As such, we opted to go
+for an ``outer-product-based'' method, noting that:
+
+\begin{align}
+  \label{eq:matmul}
+  C = AB = \sum_{i}\sum_{j}A_i B^{(j)},
+\end{align}
+
+where $A_i$ denotes the $i$th row of $A$ and $B^{(j)}$ denotes the $j$th row of
+$B$. In particular, the inner summand has the same size as $C$. To evaluate the
+inner summand, we consider $4$ entries of $A_i$ and $4$ entries of $B^{(j)}$ at
+a time, yielding a $4\times 4$ matrix that we can add to $C$. As an example,
+iterating until $A_i$ and $B^{(j)}$ are covered yields a single summand
+$A_i B^{(j)}$\footnote{This is just an example for clarity -- in reality, we do
+  not do this, but rather iterate over blocks of A.}.
+
+We load in the current values of the $4\times 4$ submatrix of $C$ that we
+plan on updating; in particular, we use $8$ XMM registers for this.
+In computing each $4\times 4$ contribution, we use $2$ XMM registers to store
+the $4$ entries of $A_i$ exactly once. To easily broadcast $B^{(j)}$, we use
+$4$ XMM registers for the $4$ entries of $B^{(j)}$, where each register contains
+two of the same entry using the \texttt{\_mm\_load1\_pd} intrinsic. We compute
+and add the associated multiplies to each of C's $8$ XMM registers. In total,
+this procedure uses $8 + 4 + 2 = 14$ XMM registers, just under the total of $16$
+provided with the AMD MagnyCours architecture.
+
+To ensure that we work only with aligned SSE instructions and avoid fringe
+cases, we pad $A$ and $C$ with zeros ahead of time; specifically, we pad
+$A$ and $C$ with zeros so that the rows and columns are each multiples of $4$.
+We do not pad $B$, since the \texttt{\_mm\_load1\_pd} intrinsic is unaligned.
+
+\textbf{Testing Unrolling Sizes} In addition to working with $4\times 4$ matrices, we
+experimented with $2\times 2$, $6\times 6$, and $8\times 8$ matrices.
+Ultimately, $4\times 4$ worked the best, presumably because this uses just under
+$16$ XMM registers.
+
+\textbf{Testing AMD MagnyCours Pipelining} We also tried many possible
+re-orderings of the various loads, adds, and multiplies involved in making the
+$4\times 4$ updates. This made no measurable difference in runtimes, presumably
+because the compiler automates this.
+
+\textbf{Testing Inner Product Methods} We originally implemented an
+inner-product-based method, but were stuck on how to efficiently compute
+reductions using SSE instructions (without SSE3). One major advantage of the
+outer-product approach is that we do not have to resort to reduce operations.
+
+\subsection{Memory Layout}
+One option in computing $C$ according to Equation~\eqref{eq:matmul} involves
+(a) iterating over $i$, (b) iterating over $j$, and (c) in an inside loop,
+computing $A_i B^{(j)}$. However, this does not take advantage of blocking
+strategies. Instead, we make the $4\times 4$ updates as we iterate
+over blocks of $A$ and rows of $B$ instead. We now describe how we lay out $A$,
+$B$, and $C$, keeping this iteration strategy in mind.
+
+Because we iterate over blocks of $A$, we store an
+auxiliary matrix that stores entries of A columnwise block-by-block where each
+block also has entries in column-major order. We make 16-byte-aligned memory
+allocations on the stack, (a) to prepare for aligned SSE instructions and (b)
+because matrix sizes tested are under 10 MB in size. We found that $64\times 64$
+block sizes yielded good performance in practice. This procedure involves $4$
+nested loops -- we tried all $24$ possible configurations and retained the best
+ordering (see code for specifics).
+
+Because we iterate over the rows of $B$, in processing
+each block of $A$, we (a) copy the transpose of the block considered in $B$ into
+an auxiliary matrix stored on the stack. Given $64\times 64$ blocks of $A$ and
+$B$, we invoke the method described in Section~\ref{sec:ioproducts}.
+
+We store $C$ in standard, column-major format. Recall that $A$, $B$, and $C$
+are all padded to ensure that the side length is a multiple of $4$.
+
+\textbf{Testing Exhaustive Block Sizes.} We use one level of blocking so as to
+improve the chances of matrix entries entering either the L1 or the L2 cache. As
+we see later in the report, the lack of multiple layers of blocking leads to
+decreased performance with increased matrix sizes, since large matrices cannot
+fully fit into cached memory.
+
+For each matrix size, we exhaustively test all block sizes with multiple $4$ up
+to the matrix size. TODO(Charles).
+
+\subsection{Compiler Options}
+We employ the following compiler options:
+\begin{itemize}
+  \item \texttt{-O2}: supported options are \texttt{-O1}, \texttt{-O2},
+    \texttt{-O3}, \texttt{-O4}, and \texttt{-Ofast}.
+    We went with \texttt{-O2}, which was slightly better than \texttt{-Ofast}.
+  \item \texttt{-march=native}: this option adds in further options that are
+    specific to the native machine.
+  \item \texttt{-funroll-loops}: this unrolls loops whose sizes are known at
+    compile time.
+  \item \texttt{-fsched-pressure}: this attempts to (1) eliminate execution
+    stalls in the CPU pipeline when data is unavailable and (2) enables register
+    pressure sensitive instruction scheduling before allocating registers.
+    Ideally, this option minimizes register spillover.
+  \item \texttt{-fsched-spec-load-dangerous}: to be honest, this flag sounded
+    cool, so we decided to include it. It seemed to eke out a tenth of a percent
+    performance, so why not include it. This allows for speculative motions of
+    more load instructions.
+\end{itemize}
+
+\small
+\bibliographystyle{plain}
+\bibliography{main}
+
+\end{document}
+
