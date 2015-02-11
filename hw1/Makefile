@@ -5,11 +5,16 @@ CC = cc
 OPT = -O3
 CFLAGS = -Wall -std=gnu99 $(OPT)
 LDFLAGS = -Wall
+
 # librt is needed for clock_gettime
 LDLIBS = -lrt
+UNAME := $(shell uname -s)
+ifeq ($(UNAME), Darwin)
+  LDLIBS = -lblas
+endif
 
-targets = benchmark-naive benchmark-blocked benchmark-blas
-objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-blas.o
+targets = benchmark-naive benchmark-blocked benchmark-blas benchmark-ours
+objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-blas.o dgemm-ours.o
 
 .PHONY : default
 default : all
@@ -17,6 +22,8 @@ default : all
 .PHONY : all
 all : clean $(targets)
 
+benchmark-ours : benchmark.o dgemm-ours.o
+	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-naive : benchmark.o dgemm-naive.o
 	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blocked : benchmark.o dgemm-blocked.o
