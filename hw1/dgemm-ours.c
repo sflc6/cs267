@@ -198,8 +198,7 @@ void small_square_dgemm(int lda, double* A, double* B,
   }
 }
 
-void big_square_dgemm(int lda, double* A, double* B,
-                      double* __restrict__ C) {
+void big_square_dgemm(int lda, double* A, double* B, double* __restrict__ C) {
   // Create a padded C to work with aligned loads
   int new_lda = lda;
   double* padded_C = C;
