@@ -64,7 +64,7 @@ void FUNC(int lda, double* A, double* B, double* __restrict__ C) { \
   REARR_FUNC(lda, new_lda, A, rearranged_A); \
   /* BLCK should be fairly small, so store cur_block_B on the \
    * stack rather than on the heap. */\
-  double cur_block_B[BLCK* BLCK]; \
+  double cur_block_B[BLCK * BLCK]; \
   double* p_B; \
   for (j = 0; j < new_lda; j += BLCK) { \
     for (k = 0; k < new_lda; k += BLCK) { \
@@ -193,6 +193,74 @@ HAMMERTIME(rearrange_a_68, square_dgemm_68, 68)
 HAMMERTIME(rearrange_a_80, square_dgemm_80, 80)
 HAMMERTIME(rearrange_a_88, square_dgemm_88, 88)
 
+// Just in case the GSI's decide to pass in a much larger matrix than
+// 769 x 769
+void big_square_dgemm(int lda, double* A, double* B,
+                      double* __restrict__ C) {
+  // Create a padded C to work with aligned loads
+  double* padded_C = C;
+
+  int i, j, k, l, m;
+
+  // Round up to the nearest multiple of UNROLL_FACTOR
+  int new_lda = (lda + UNROLL_FACTOR - 1) / UNROLL_FACTOR * UNROLL_FACTOR;
+  padded_C = (double*) memalign(
+      16, new_lda * new_lda * sizeof(double));
+
+  // Fill in the padded version of C -- don't bother filling in the
+  // padded region, since we won't really be using the entries there.
+  for (j = 0; j < lda; ++j) {
+    for (i = 0; i < lda; ++i) {
+      padded_C[i + j * new_lda] = C[i + j * lda];
+    }
+  }
+
+  // Re-arrange A
+  double* rearranged_A =
+      (double*) memalign(16, new_lda * new_lda * sizeof(double));
+  rearrange_a_80(lda, new_lda, A, rearranged_A);
+
+  // 80 should be fairly small, so store cur_block_B on the
+  // stack rather than on the heap.
+  double cur_block_B[80 * 80] __attribute__((aligned(16)));
+
+  double* p_B;
+  for (j = 0; j < new_lda; j += 80) {
+    for (k = 0; k < new_lda; k += 80) {
+      int K_new = min(new_lda - k, 80);
+      int K = min(lda - k, 80);
+      int N = min(new_lda - j, 80);
+
+      // Store away the current block from B that we're looking at. If
+      // we're lucky, this should get stored in the L1 cache.
+      p_B = B + k + j * lda;
+      for (l = 0; l < N; ++l) {
+        for (m = 0; m < K; ++m) {
+          cur_block_B[l + m * N] = p_B[m + l * lda];
+        }
+      }
+
+      // Execute the loop-tiled matrix multiply
+      for (i = 0; i < new_lda; i += 80) {
+
+        int M = min(80, new_lda - i);
+        do_block(new_lda, M, N, K,
+                 rearranged_A + i * K_new + k * new_lda,
+                 cur_block_B, padded_C + i + j * new_lda);
+      }
+    }
+  }
+
+  // If we're currently using padding, then unpad
+  for (j = 0; j < lda; j++) {
+    for (i = 0; i < lda; i++) {
+      C[i + j * lda] = padded_C[i + j * new_lda];
+    }
+  }
+  free(padded_C);
+  free(rearranged_A);
+}
+
 void square_dgemm(int lda, double* A, double* B, double* __restrict__ C) {
   if (lda <= 32) {
     square_dgemm_32(lda, A, B, C);
@@ -202,8 +270,10 @@ void square_dgemm(int lda, double* A, double* B, double* __restrict__ C) {
     square_dgemm_68(lda, A, B, C);
   } else if (lda <= 639) {
     square_dgemm_88(lda, A, B, C);
-  } else {
+  } else if (lda <= 769) {
     square_dgemm_80(lda, A, B, C);
+  } else {
+    big_square_dgemm(lda, A, B, C);
   }
 }
 
