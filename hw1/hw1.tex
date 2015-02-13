@@ -195,7 +195,7 @@ the block size would not be a compile-time constant. For robustness, we ran each
 (block size, matrix size) tuple a total of four times.
 
 We summarize the results in Figure TODO. Per matrix size, there is not a block size
-that wins uniequivocally -- rather, there is often a range of block sizes that typically
+that wins unequivocally -- rather, there is often a range of block sizes that typically
 attains similar performance. Ultimately, we use the following ranges of block sizes:
 for \texttt{lda}$\in [1, 32]$, we use a block size of $32$. For \texttt{lda}$\in [33, 97]$,
 we use a block size of $52$. For \texttt{lda}$\in [98, 192]$, we use a block size of $68$.
