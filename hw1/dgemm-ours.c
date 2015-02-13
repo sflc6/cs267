@@ -5,14 +5,100 @@
 
 const char* dgemm_desc = "Loop-tiled dgemm; A is re-ordered where A's blocks are placed in column-major order, and each block is in column-major order. Blocks of B are transposed and cached. Block multiplies are executed via SSE.";
 
-#if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 68
-#endif
-
 #define min(a,b) (((a)<(b))?(a):(b))
 
 // Do not change this
 #define UNROLL_FACTOR 4
+
+#define REARRANGE_A(FUNC, BLCK) \
+__attribute__((always_inline)) \
+inline double* FUNC(int lda, int new_lda, double* A,\
+                    double* rearranged_A) {\
+  double* p_A;\
+  double* p_rearranged_A;\
+  int new_width, new_height, height;\
+  int i, j, k, l;\
+  for (k = 0; k < lda; k += BLCK) {\
+    new_width = min(BLCK, new_lda - k);\
+    for (i = 0; i < new_lda; i += BLCK) {\
+      /* Useful pointers/values */\
+      p_A = A + i + k * lda;\
+      p_rearranged_A = rearranged_A + new_width * i + new_lda * k;\
+      new_height = min(BLCK, new_lda - i);\
+      height = min(BLCK, lda - i);\
+      \
+      /* Fill in the current block, whose top left is at (i, k) in the\
+       * original matrix. */\
+      for (j = 0; j < new_width; j++) {\
+        /* Fill in the actual values */\
+        for (l = 0; l < height; l++) {\
+          p_rearranged_A[l + j * new_height] = p_A[l + j * lda];\
+        }\
+        /* Pad with zeros */\
+        for (l = height; l < new_height; l++) {\
+          p_rearranged_A[l + j * new_height] = 0.0;\
+        }\
+      }\
+    }\
+  }\
+  return rearranged_A;\
+}\
+
+#define SQUARE_DGEMM(FUNC, REARR_FUNC, BLCK) \
+void FUNC(int lda, double* A, double* B, double* __restrict__ C) { \
+  /* Create a padded C to work with aligned loads */\
+  int new_lda = lda; \
+  int i, j, k, l, m; \
+  /* Round up to the nearest multiple of UNROLL_FACTOR */ \
+  new_lda = (lda + UNROLL_FACTOR - 1) / UNROLL_FACTOR * UNROLL_FACTOR; \
+  double padded_C[new_lda * new_lda] __attribute__((aligned(16))); \
+  /* Fill in the padded version of C -- don't bother filling in the \
+   * padded region, since we won't really be using the entries there. */\
+  for (j = 0; j < lda; ++j) { \
+    for (i = 0; i < lda; ++i) { \
+      padded_C[i + j * new_lda] = C[i + j * lda]; \
+    } \
+  } \
+  /* Re-arrange A */\
+  double rearranged_A[new_lda * new_lda] __attribute__((aligned(16))); \
+  REARR_FUNC(lda, new_lda, A, rearranged_A); \
+  /* BLCK should be fairly small, so store cur_block_B on the \
+   * stack rather than on the heap. */\
+  double cur_block_B[BLCK* BLCK]; \
+  double* p_B; \
+  for (j = 0; j < new_lda; j += BLCK) { \
+    for (k = 0; k < new_lda; k += BLCK) { \
+      int K_new = min(new_lda - k, BLCK); \
+      int K = min(lda - k, BLCK); \
+      int N = min(new_lda - j, BLCK); \
+      /* Store away the current block from B that we're looking at. If \
+       * we're lucky, this should get stored in the L1 cache. */ \
+      p_B = B + k + j * lda; \
+      for (l = 0; l < N; ++l) { \
+        for (m = 0; m < K; ++m) { \
+          cur_block_B[l + m * N] = p_B[m + l * lda]; \
+        } \
+      } \
+      /* Execute the loop-tiled matrix multiply */\
+      for (i = 0; i < new_lda; i += BLCK) { \
+        int M = min(BLCK, new_lda - i); \
+        do_block(new_lda, M, N, K, \
+                 rearranged_A + i * K_new + k * new_lda, \
+                 cur_block_B, padded_C + i + j * new_lda); \
+      } \
+    } \
+  } \
+  /* If we're currently using padding, then unpad */\
+  for (j = 0; j < lda; j++) { \
+    for (i = 0; i < lda; i++) { \
+      C[i + j * lda] = padded_C[i + j * new_lda]; \
+    } \
+  } \
+} \
+
+#define HAMMERTIME(FUNC_REARRANGE, FUNC_SQUARE_DGEMM, BLCK) \
+  REARRANGE_A(FUNC_REARRANGE, BLCK) \
+  SQUARE_DGEMM(FUNC_SQUARE_DGEMM, FUNC_REARRANGE, BLCK)
 
 void do_block(int new_lda, int M, int N, int K,
               double* __restrict__ rearranged_A,
@@ -100,101 +186,24 @@ void do_block(int new_lda, int M, int N, int K,
   }
 }
 
-__attribute__((always_inline))
-inline double* rearrange_A(int lda, int new_lda, double* A,
-                           double* rearranged_A) {
-  double* p_A;
-  double* p_rearranged_A;
-  int new_width, new_height, height;
+// Generate code for the various block sizes
+HAMMERTIME(rearrange_a_32, square_dgemm_32, 32)
+HAMMERTIME(rearrange_a_52, square_dgemm_52, 52)
+HAMMERTIME(rearrange_a_68, square_dgemm_68, 68)
+HAMMERTIME(rearrange_a_80, square_dgemm_80, 80)
+HAMMERTIME(rearrange_a_88, square_dgemm_88, 88)
 
-  int i, j, k, l;
-
-  for (k = 0; k < lda; k += BLOCK_SIZE) {
-    new_width = min(BLOCK_SIZE, new_lda - k);
-    for (i = 0; i < new_lda; i += BLOCK_SIZE) {
-      // Useful pointers/values
-      p_A = A + i + k * lda;
-      p_rearranged_A = rearranged_A + new_width * i + new_lda * k;
-      new_height = min(BLOCK_SIZE, new_lda - i);
-      height = min(BLOCK_SIZE, lda - i);
-
-      // Fill in the current block, whose top left is at (i, k) in the
-      // original matrix.
-      for (j = 0; j < new_width; j++) {
-        // Fill in the actual values
-        for (l = 0; l < height; l++) {
-          p_rearranged_A[l + j * new_height] = p_A[l + j * lda];
-        }
-        // Pad with zeros
-        for (l = height; l < new_height; l++) {
-          p_rearranged_A[l + j * new_height] = 0.0;
-        }
-      }
-    }
-  }
-
-  return rearranged_A;
-}
-
-void square_dgemm(int lda, double* A, double* B,
-                  double* __restrict__ C) {
-  // Create a padded C to work with aligned loads
-  int new_lda = lda;
-
-  int i, j, k, l, m;
-
-  // Round up to the nearest multiple of UNROLL_FACTOR
-  new_lda = (lda + UNROLL_FACTOR - 1) / UNROLL_FACTOR * UNROLL_FACTOR;
-  double padded_C[new_lda * new_lda] __attribute__((aligned(16)));
-
-  // Fill in the padded version of C -- don't bother filling in the
-  // padded region, since we won't really be using the entries there.
-  for (j = 0; j < lda; ++j) {
-    for (i = 0; i < lda; ++i) {
-      padded_C[i + j * new_lda] = C[i + j * lda];
-    }
-  }
-
-  // Re-arrange A
-  double rearranged_A[new_lda * new_lda] __attribute__((aligned(16)));
-  rearrange_A(lda, new_lda, A, rearranged_A);
-
-  // BLOCK_SIZE should be fairly small, so store cur_block_B on the
-  // stack rather than on the heap.
-  double cur_block_B[BLOCK_SIZE*
-                     BLOCK_SIZE] __attribute__((aligned(16)));
-
-  double* p_B;
-  for (j = 0; j < new_lda; j += BLOCK_SIZE) {
-    for (k = 0; k < new_lda; k += BLOCK_SIZE) {
-      int K_new = min(new_lda - k, BLOCK_SIZE);
-      int K = min(lda - k, BLOCK_SIZE);
-      int N = min(new_lda - j, BLOCK_SIZE);
-
-      // Store away the current block from B that we're looking at. If
-      // we're lucky, this should get stored in the L1 cache.
-      p_B = B + k + j * lda;
-      for (l = 0; l < N; ++l) {
-        for (m = 0; m < K; ++m) {
-          cur_block_B[l + m * N] = p_B[m + l * lda];
-        }
-      }
-
-      // Execute the loop-tiled matrix multiply
-      for (i = 0; i < new_lda; i += BLOCK_SIZE) {
-        int M = min(BLOCK_SIZE, new_lda - i);
-        do_block(new_lda, M, N, K,
-                 rearranged_A + i * K_new + k * new_lda,
-                 cur_block_B, padded_C + i + j * new_lda);
-      }
-    }
-  }
-
-  // If we're currently using padding, then unpad
-  for (j = 0; j < lda; j++) {
-    for (i = 0; i < lda; i++) {
-      C[i + j * lda] = padded_C[i + j * new_lda];
-    }
+void square_dgemm(int lda, double* A, double* B, double* __restrict__ C) {
+  if (lda <= 32) {
+    square_dgemm_32(lda, A, B, C);
+  } else if (lda <= 97) {
+    square_dgemm_52(lda, A, B, C);
+  } else if (lda <= 192) {
+    square_dgemm_68(lda, A, B, C);
+  } else if (lda <= 639) {
+    square_dgemm_88(lda, A, B, C);
+  } else {
+    square_dgemm_80(lda, A, B, C);
   }
 }
 
