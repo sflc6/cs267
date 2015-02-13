@@ -91,7 +91,7 @@ Berkeley, CA 94709 \\
 \maketitle
 
 \section{Optimizations Used and Attempted}
-This section describes the approach we took in optimizing the \dgemm procedure,
+This section describes the approach we took in optimizing the \dgemm\; procedure,
 which runs at an average $71\%$ of peak speed on an AMD MagnyCours under the
 given test cases.
 Concretely, we describe how we compute $C \leftarrow C + AB$. At a high level,
@@ -174,7 +174,10 @@ an auxiliary matrix stored on the stack. Given $68\times 68$ blocks of $A$ and
 $B$, we invoke the method described in Section~\ref{sec:ioproducts}.
 
 We store $C$ in standard, column-major format. Recall that $A$, $B$, and $C$
-are all padded to ensure that the side length is a multiple of $4$.
+are all padded to ensure that the side length is a multiple of $4$. In practice,
+we could have also gone for a blocked implementation of $C$, but did not find
+this necessary to get high performance (maybe blocking here would yield even
+higher performance though).
 
 \textbf{Testing Exhaustive Block Sizes.} We use one level
 of blocking so as to improve the chances of matrix entries entering either the

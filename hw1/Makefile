@@ -7,7 +7,7 @@ CFLAGS = -Wall -std=gnu99 $(OPT)
 LDFLAGS = -Wall
 
 # librt is needed for clock_gettime
-LDLIBS = -lrt -lgcov
+LDLIBS = -lrt
 UNAME := $(shell uname -s)
 ifeq ($(UNAME), Darwin)
   LDLIBS = -lblas
