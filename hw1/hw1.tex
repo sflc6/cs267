@@ -12,10 +12,6 @@
 % For citations
 \usepackage{natbib}
 
-% For algorithms
-\usepackage{algorithm}
-\usepackage{algorithmic}
-
 % Nice colors
 \usepackage{color,colortbl}
 
@@ -55,7 +51,6 @@
 \endtrivlist}
 
 \title{CS 267 Homework 1: Matrix Multiplication}
-
 
 \author{
 Karthik S. Narayan \\
@@ -97,7 +92,8 @@ Berkeley, CA 94709 \\
 
 \section{Optimizations Used and Attempted}
 This section describes the approach we took in optimizing the \dgemm procedure,
-which runs at $60.5\%$ of peak speed on an AMD MagnyCours.
+which runs at an average $71\%$ of peak speed on an AMD MagnyCours under the
+given test cases.
 Concretely, we describe how we compute $C \leftarrow C + AB$. At a high level,
 we (a) create auxiliary data structures that re-arrange and/or pad $A$, $B$,
 and $C$, (b) employ blocking to multiply small blocks of $A$, $B$, and $C$,
@@ -153,12 +149,15 @@ reductions using SSE instructions (without SSE3). One major advantage of the
 outer-product approach is that we do not have to resort to reduce operations.
 
 \subsection{Memory Layout}
+\label{sec:mem-layout}
 One option in computing $C$ according to Equation~\eqref{eq:matmul} involves
 (a) iterating over $i$, (b) iterating over $j$, and (c) in an inside loop,
 computing $A_i B^{(j)}$. However, this does not take advantage of blocking
 strategies. Instead, we make the $4\times 4$ updates as we iterate
 over blocks of $A$ and rows of $B$ instead. We now describe how we lay out $A$,
-$B$, and $C$, keeping this iteration strategy in mind.
+$B$, and $C$, keeping this iteration strategy in mind. In general, all auxiliary
+matrices are assigned on the stack, unless they are larger than
+$1024 \times 1024$, in which case they are made on the heap.
 
 Because we iterate over blocks of $A$, we store an
 auxiliary matrix that stores entries of A columnwise block-by-block where each
@@ -177,14 +176,34 @@ $B$, we invoke the method described in Section~\ref{sec:ioproducts}.
 We store $C$ in standard, column-major format. Recall that $A$, $B$, and $C$
 are all padded to ensure that the side length is a multiple of $4$.
 
-\textbf{Testing Exhaustive Block Sizes.} We use one level of blocking so as to
-improve the chances of matrix entries entering either the L1 or the L2 cache. As
-we see later in the report, the lack of multiple layers of blocking leads to
-decreased performance with increased matrix sizes, since large matrices cannot
-fully fit into cached memory.
+\textbf{Testing Exhaustive Block Sizes.} We use one level
+of blocking so as to improve the chances of matrix entries entering either the
+L1 or the L2 cache. As we see later in the report, the lack of multiple layers
+of blocking leads to decreased performance with increased matrix sizes, since
+large matrices cannot fully fit into cached memory.
 
 For each matrix size, we exhaustively test all block sizes with multiple $4$ up
-to the matrix size. TODO(Charles).
+to the matrix size. Rather than testing this via a \texttt{for}-loop over block sizes
+directly within \texttt{benchmark.c}, we wrote a bash script which (1) replaced the
+\texttt{\#define BLOCK\_SIZE} line with the appropriate block size. This was vital,
+since directly coding this loop in C without generating the code would yield
+substantially slower results (by 4\%); this is likely because in this latter case,
+the block size would not be a compile-time constant. For robustness, we ran each
+(block size, matrix size) tuple a total of four times.
+
+We summarize the results in Figure TODO. Per matrix size, there is not a block size
+that wins uniequivocally -- rather, there is often a range of block sizes that typically
+attains similar performance. Ultimately, we use the following ranges of block sizes:
+for \texttt{lda}$\in [1, 32]$, we use a block size of $32$. For \texttt{lda}$\in [33, 97]$,
+we use a block size of $52$. For \texttt{lda}$\in [98, 192]$, we use a block size of $68$.
+For \texttt{lda}$\in [193, 639]$, we use a block size of $88$. For \texttt{lda}$\in [640, \infty]$,
+we use a block size of $80$.
+
+To ensure that \texttt{BLOCK\_SIZE} is still a compile-time constant, we employ
+code generation; in particular, we define an auxiliary \texttt{square\_dgemm\_BLCK} that
+has been defined in a pre-processor macro and contains most of the logic, assuming fixed block
+size \texttt{BLCK}. The preprocessor macro allows us to then elegantly state the various
+instances of the method (this simulates the concept of static-templating in C++).
 
 \subsection{Compiler Options}
 We employ the following compiler options:
@@ -218,6 +237,21 @@ probabilities and other useful goodies, which we can then be used by future
 executions of the code. Indeed, recompiling with the
 \texttt{-fbranch-probabilities} flag, we unfortunately found that the resulting
 code somehow ran slower (perhaps we didn't run something correctly).
+
+\section{Testing on an Intel i7-4930K CPU}
+We additionally tested our code on an Intel i7-4930K CPU to see how performance would
+be impacted, given that we heavily optimized our code and compile flags particularly
+for the Hopper nodes. We did have to make a slight modification to our code; discussed
+in Section~\ref{sec:mem-layout}, we allocate matrices smaller than $1024 \times 1024$
+on the stack -- we had to decrease this size to $639\times 639$ to avoid stack overflows.
+In order to run the provided BLAS benchmark, we had to link via \texttt{-lblas}. Other
+than these two changes, we did not modify the code or other flags.
+
+Shown in Figure, our code outperforms the native BLAS by a large factor.
+In particular, the BLAS libraries were not installed from source, so there was no
+opportunity for the compiler to specifically optimize the code to this machine.
+However, our code was compiled on this machine, allowing the gcc compiler to specifically
+optimize performance.
 
 \small
 \bibliographystyle{plain}
