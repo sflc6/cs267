@@ -13,8 +13,8 @@ ifeq ($(UNAME), Darwin)
   LDLIBS = -lblas
 endif
 
-targets = benchmark-naive benchmark-blocked benchmark-blas benchmark-ours
-objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-blas.o dgemm-ours.o
+targets = benchmark-blocked
+objects = benchmark.o dgemm-blocked.o
 
 .PHONY : default
 default : all
@@ -22,13 +22,7 @@ default : all
 .PHONY : all
 all : clean $(targets)
 
-benchmark-ours : benchmark.o dgemm-ours.o
-	$(CC) -o $@ $^ $(LDLIBS)
-benchmark-naive : benchmark.o dgemm-naive.o
-	$(CC) -o $@ $^ $(LDLIBS)
 benchmark-blocked : benchmark.o dgemm-blocked.o
-	$(CC) -o $@ $^ $(LDLIBS)
-benchmark-blas : benchmark.o dgemm-blas.o
 	$(CC) -o $@ $^ $(LDLIBS)
 
 %.o : %.c
