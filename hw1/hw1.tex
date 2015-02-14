@@ -8,6 +8,9 @@
 \usepackage{pstool}
 \usepackage{caption}
 \usepackage{subcaption}
+\usepackage{lscape}
+\usepackage{float}
+%\usepackage{geometry}
 
 % For citations
 \usepackage{natbib}
@@ -59,7 +62,7 @@ University of California, Berkeley\\
 Berkeley, CA 94709 \\
 \texttt{karthik.narayan@berkeley.edu} \\
 \And
-Charles Scudiere \\
+Charles A. Scudiere \\
 Mechanical Engineering\\
 University of California, Berkeley\\
 Berkeley, CA 94709 \\
@@ -181,20 +184,88 @@ higher performance though).
 
 \textbf{Testing Exhaustive Block Sizes.} We use one level
 of blocking so as to improve the chances of matrix entries entering either the
-L1 or the L2 cache. As we see later in the report, the lack of multiple layers
+L1 or the L2 cache. As we see later in this report, the lack of multiple layers
 of blocking leads to decreased performance with increased matrix sizes, since
 large matrices cannot fully fit into cached memory.
 
-For each matrix size, we exhaustively test all block sizes with multiple $4$ up
+Instead of arbitrarily selecting a block size, we ran several experiments to
+determine the optimal block size. For each matrix size, we exhaustively tested all the block sizes with a multiple of $4$ up
 to the matrix size. Rather than testing this via a \texttt{for}-loop over block sizes
 directly within \texttt{benchmark.c}, we wrote a bash script which (1) replaced the
 \texttt{\#define BLOCK\_SIZE} line with the appropriate block size. This was vital,
 since directly coding this loop in C without generating the code would yield
 substantially slower results (by 4\%); this is likely because in this latter case,
 the block size would not be a compile-time constant. For robustness, we ran each
-(block size, matrix size) tuple a total of four times.
+(block size, matrix size) tuple a total of four times to generate meaningful statistical data. In processing the output, we determined the best block size given the size of the matrix weighing in statistical averaging and assuming random "performance noise" to explain the variations in performance across each of the trail runs.
 
-We summarize the results in Figure TODO. Per matrix size, there is not a block size
+We present the results of these trials in Figures 1-5. Figures 1-4 summarize the
+average performance for each individual array test size on Hopper, while Figure 5 summarizes
+the performance using the selected block sizes chosen from the peak performance.
+
+\begin{figure}
+ \noindent
+ \hspace*{-1.5in}
+ \includegraphics[width=\paperwidth, page=1, trim={.25in 1.5in .25in 1.75in}]{block_size_perf.pdf}
+ \caption{Performance vs. Average Block Size Graphs, Array sizes 31-191}
+\end{figure}
+
+\begin{figure}
+ \noindent
+ \hspace*{-1.5in}
+ \includegraphics[width=\paperwidth, page=2, trim={.25in 1.5in .25in 1.75in}]{block_size_perf.pdf}
+ \caption{Performance vs. Average Block Size Graphs, Array sizes 192-321}
+\end{figure}
+
+\begin{figure}
+ \noindent
+ \hspace*{-1.5in}
+ \includegraphics[width=\paperwidth, page=3, trim={.25in 1.5in .25in 1.75in}]{block_size_perf.pdf}
+ \caption{Performance vs. Average Block Size Graphs, Array sizes 417-767}
+\end{figure}
+
+\begin{figure}
+ \noindent
+ \hspace*{-1.5in}
+ \includegraphics[width=\paperwidth, page=4, trim={.25in 7.75in .25in 1.75in}]{block_size_perf.pdf}
+ \caption{Performance vs. Average Block Size Graphs, Array sizes 768-769}
+\end{figure}
+
+One thing to notice about Figures 1-4 are the distinct dips in the performance at
+certain block sizes. These dips seem to appear at consistently spaced intervals, for
+all block sizes -- perhaps, this occurs due to misses due to the AMD MagnyCours's
+cache line size.
+
+We can easily discern two trends from the figures. For block sizes of 97 and below,
+increasing the block size greatly improves the performance until it asymptotes at
+the array size. With increasing matrix sizes, another trend appears: we begin
+to see inverted U patterns. For smaller block sizes, the required components likely
+fit into the L1/L2 cache. Because we do not explore multiple levels of blocking, the
+same components do not fully fit into the L1/L2 cache for larger matrix sizes, yielding
+spillover into slow memory. This latter argument addresses why performance decreases
+for larger matrices.
+
+Analyzing the results in detail leads to determining the overall best block size
+to choose. To determine the best sizes for a particular array size, the
+statistical modes, averages, and individual test run performance were weighed.
+
+A summary of the results with the selected block sizes are presented in Figure 5.
+The performance for each of the optimized selected block sizes shown with three
+distinct statistical analytics of the performance including the mean, median,
+and mode of each test run at the selected optimal block size for each array size.
+
+\begin{figure}
+ \noindent
+ \includegraphics[width=0.5\textwidth]{selected_block_size_perf.pdf}
+ \caption{Selected Block Performance, Array Size vs. Percentage}
+\end{figure}
+
+\begin{figure}
+ \noindent
+ \includegraphics[width=0.5\textwidth]{method_comparison.pdf}
+ \caption{Method Comparison, Array Size vs. Computation Speed}
+\end{figure}
+
+Per matrix size, there is not a block size
 that wins unequivocally -- rather, there is often a range of block sizes that typically
 attains similar performance. Ultimately, we use the following ranges of block sizes:
 for \texttt{lda}$\in [1, 32]$, we use a block size of $32$. For \texttt{lda}$\in [33, 97]$,
@@ -211,18 +282,18 @@ instances of the method (this simulates the concept of static-templating in C++)
 \subsection{Compiler Options}
 We employ the following compiler options:
 \begin{itemize}
-  \item \texttt{-O2}: supported options are \texttt{-O1}, \texttt{-O2},
+  \item \texttt{-O2}: The supported options on hopper are \texttt{-O1}, \texttt{-O2},
     \texttt{-O3}, \texttt{-O4}, and \texttt{-Ofast}.
-    We went with \texttt{-O2}, which was slightly better than \texttt{-Ofast}.
-  \item \texttt{-march=native}: this option adds in further options that are
+    We chose \texttt{-O2}, which was had a slightly better performance than \texttt{-Ofast}.
+  \item \texttt{-march=native}: This option adds in further options that are
     specific to the native machine.
-  \item \texttt{-funroll-loops}: this unrolls loops whose sizes are known at
+  \item \texttt{-funroll-loops}: This unrolls loops whose sizes are known at
     compile time.
-  \item \texttt{-fsched-pressure}: this attempts to (1) eliminate execution
+  \item \texttt{-fsched-pressure}: This attempts to (1) eliminate execution
     stalls in the CPU pipeline when data is unavailable and (2) enables register
     pressure sensitive instruction scheduling before allocating registers.
     Ideally, this option minimizes register spillover.
-  \item \texttt{-fsched-spec-load-dangerous}: to be honest, this flag sounded
+  \item \texttt{-fsched-spec-load-dangerous}: To be honest, this flag sounded
     cool, so we decided to include it. It seemed to eke out a tenth of a percent
     performance, so why not include it. This allows for speculative motions of
     more load instructions.
@@ -242,19 +313,21 @@ executions of the code. Indeed, recompiling with the
 code somehow ran slower (perhaps we didn't run something correctly).
 
 \section{Testing on an Intel i7-4930K CPU}
-We additionally tested our code on an Intel i7-4930K CPU to see how performance would
-be impacted, given that we heavily optimized our code and compile flags particularly
-for the Hopper nodes. We did have to make a slight modification to our code; discussed
-in Section~\ref{sec:mem-layout}, we allocate matrices smaller than $1024 \times 1024$
-on the stack -- we had to decrease this size to $639\times 639$ to avoid stack overflows.
-In order to run the provided BLAS benchmark, we had to link via \texttt{-lblas}. Other
-than these two changes, we did not modify the code or other flags.
+We additionally tested our code on an Intel i7-4930K CPU to see how performance
+would be impacted on an alternate machine build. Given that we heavily optimized
+our code and compile flags particularly for the Hopper nodes, we had to make
+slight modifications to the makefile and the code; discussed in
+Section~\ref{sec:mem-layout}, we allocate matrices smaller than $1024 \times 1024$
+on the stack -- we had to decrease this size to $639\times 639$ to avoid stack
+overflows.  In order to run the provided BLAS benchmark, we had to link via
+\texttt{-lblas}. Other than these two changes, we did not modify the code or
+other flags.
 
-Shown in Figure, our code outperforms the native BLAS by a large factor.
+Shown in Figure 6 below, our code outperforms the native BLAS by a large factor.
 In particular, the BLAS libraries were not installed from source, so there was no
 opportunity for the compiler to specifically optimize the code to this machine.
-However, our code was compiled on this machine, allowing the gcc compiler to specifically
-optimize performance.
+However, our code was compiled on this machine, allowing the gcc compiler to
+specifically optimize performance.
 
 \small
 \bibliographystyle{plain}
